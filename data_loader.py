@@ -31,10 +31,20 @@ class MNISTDataLoader:
                     self.image_paths.append(img_path)
                     self.labels.append(int(digit_folder))  # Label is the folder name
         
+        # Shuffle the images and labels together to get random order
+        combined = list(zip(self.image_paths, self.labels))
+        np.random.shuffle(combined)
+        self.image_paths, self.labels = zip(*combined)
+        
+        # Convert back to lists
+        self.image_paths = list(self.image_paths)
+        self.labels = list(self.labels)
+        
         print(f"Created label mapping for {len(self.image_paths)} images")
         if len(self.labels) > 0:
             print(f"Label distribution: {np.bincount(self.labels)}")
             print(f"Available digits: {sorted(set(self.labels))}")
+            print("Images shuffled for random navigation order")
         else:
             print("No images found in the dataset!")
     
