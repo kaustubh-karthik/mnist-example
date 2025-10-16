@@ -317,6 +317,112 @@ class NNVisualizer:
         
         print("Model training completed!")
     
+    def continue_training(self, additional_epochs=20):
+        """Continue training the model with improved strategies"""
+        print(f"Loading training data for improved training...")
+        X_train, y_train = self.data_loader.load_training_data(max_samples=5000)  # Use more data
+        
+        print(f"Training data shape: {X_train.shape}")
+        print(f"Training labels shape: {y_train.shape}")
+        
+        # Store original learning rate
+        original_lr = self.model.learning_rate
+        
+        print(f"Starting improved training with adaptive learning rate...")
+        batch_size = 32  # Smaller batch size for better gradient estimates
+        
+        # Training with learning rate decay and more epochs
+        total_epochs = 30
+        best_loss = float('inf')
+        patience = 5
+        patience_counter = 0
+        
+        for epoch in range(total_epochs):
+            epoch_loss = 0
+            num_batches = 0
+            
+            # Shuffle data
+            indices = np.random.permutation(len(X_train))
+            X_train = X_train[indices]
+            y_train = y_train[indices]
+            
+            # Mini-batch training
+            for i in range(0, len(X_train), batch_size):
+                batch_X = X_train[i:i+batch_size]
+                batch_y = y_train[i:i+batch_size]
+                
+                loss = self.model.train_step(batch_X, batch_y)
+                epoch_loss += loss
+                num_batches += 1
+            
+            avg_loss = epoch_loss / num_batches
+            
+            # Learning rate decay
+            if epoch > 0 and epoch % 5 == 0:
+                self.model.learning_rate *= 0.8
+                print(f"Reduced learning rate to {self.model.learning_rate:.6f}")
+            
+            # Early stopping check
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            
+            print(f"Epoch {epoch+1}/{total_epochs}, Average Loss: {avg_loss:.4f}, LR: {self.model.learning_rate:.6f}")
+            
+            # Early stopping
+            if patience_counter >= patience and epoch > 10:
+                print(f"Early stopping at epoch {epoch+1} (no improvement for {patience} epochs)")
+                break
+        
+        # Restore original learning rate
+        self.model.learning_rate = original_lr
+        
+        print(f"Improved training completed! Best loss: {best_loss:.4f}")
+        
+        # Test the improved model
+        self.test_model_performance()
+    
+    def test_model_performance(self):
+        """Test the model performance on a sample of images"""
+        print("\n" + "="*50)
+        print("TESTING MODEL PERFORMANCE")
+        print("="*50)
+        
+        # Load test data
+        X_test, y_test = self.data_loader.load_test_data(max_samples=100)
+        
+        # Make predictions
+        predictions, probabilities = self.model.predict(X_test)
+        
+        # Calculate accuracy
+        correct = np.sum(predictions == y_test)
+        accuracy = correct / len(y_test)
+        
+        print(f"Test Accuracy: {accuracy:.3f} ({correct}/{len(y_test)})")
+        
+        # Show per-class accuracy
+        class_correct = np.zeros(10)
+        class_total = np.zeros(10)
+        
+        for i in range(len(y_test)):
+            class_total[y_test[i]] += 1
+            if predictions[i] == y_test[i]:
+                class_correct[y_test[i]] += 1
+        
+        print("\nPer-class accuracy:")
+        for i in range(10):
+            if class_total[i] > 0:
+                acc = class_correct[i] / class_total[i]
+                print(f"  Class {i}: {acc:.3f} ({int(class_correct[i])}/{int(class_total[i])})")
+        
+        # Show average confidence
+        avg_confidence = np.mean(np.max(probabilities, axis=1))
+        print(f"\nAverage confidence: {avg_confidence:.3f}")
+        
+        print("="*50)
+    
     def create_ui(self):
         """Create the user interface"""
         # Create main frame
@@ -345,7 +451,7 @@ class NNVisualizer:
         model_frame = ttk.Frame(control_frame)
         model_frame.pack(side='right')
         
-        ttk.Button(model_frame, text="Retrain Model", command=self.retrain_model).pack(side='left', padx=5)
+        ttk.Button(model_frame, text="Improve Model", command=self.retrain_model).pack(side='left', padx=5)
         ttk.Button(model_frame, text="Save Model", command=self.save_model).pack(side='left', padx=5)
         
         # Create notebook for tabs
@@ -417,20 +523,15 @@ class NNVisualizer:
             self.update_visualizations()
     
     def retrain_model(self):
-        """Retrain the model"""
-        if messagebox.askyesno("Retrain Model", "This will retrain the model from scratch. Continue?"):
-            # Delete existing model file
-            if os.path.exists(self.model_file):
-                os.remove(self.model_file)
-            
-            # Create new model and train
-            self.model = SimpleNeuralNetwork()
-            self.train_model()
+        """Continue training the model with additional epochs"""
+        if messagebox.askyesno("Continue Training", "This will add 20 more training epochs to the existing model. Continue?"):
+            print("Continuing training with 20 additional epochs...")
+            self.continue_training(additional_epochs=20)
             self.model.save_model(self.model_file)
             
             # Update visualizations
             self.update_visualizations()
-            messagebox.showinfo("Success", "Model retrained successfully!")
+            messagebox.showinfo("Success", "Model training continued successfully!")
     
     def save_model(self):
         """Save the current model"""

@@ -81,3 +81,4 @@ python enhanced_nn_visualizer.py
    - Feature importance highlights most contributing pixels
 
 The model learns to associate pixel patterns with digit classes through the weight matrix, which you can visualize to understand what the model "sees" when making predictions.
+
