@@ -1,0 +1,159 @@
+import numpy as np
+import os
+import glob
+from PIL import Image
+
+class MNISTDataLoader:
+    """MNIST data loader for JPG files with proper labeling"""
+    
+    def __init__(self, dataset_path='mnist-dataset'):
+        self.dataset_path = dataset_path
+        self.digit_folders = [str(i) for i in range(10)]  # 0-9
+        
+        # Create a mapping of image paths to labels using folder structure
+        self.create_label_mapping()
+    
+    def create_label_mapping(self):
+        """Create a mapping from image paths to labels using folder structure"""
+        self.image_paths = []
+        self.labels = []
+        
+        # Load images from each digit folder
+        for digit_folder in self.digit_folders:
+            digit_path = os.path.join(self.dataset_path, digit_folder)
+            
+            if os.path.exists(digit_path):
+                # Get all JPG files in this digit folder
+                jpg_files = glob.glob(os.path.join(digit_path, "*.jpg"))
+                
+                # Add images and their corresponding labels
+                for img_path in jpg_files:
+                    self.image_paths.append(img_path)
+                    self.labels.append(int(digit_folder))  # Label is the folder name
+        
+        print(f"Created label mapping for {len(self.image_paths)} images")
+        if len(self.labels) > 0:
+            print(f"Label distribution: {np.bincount(self.labels)}")
+            print(f"Available digits: {sorted(set(self.labels))}")
+        else:
+            print("No images found in the dataset!")
+    
+    def load_images_from_paths(self, image_paths, labels, max_samples=None):
+        """Load images from given paths with corresponding labels"""
+        if max_samples:
+            image_paths = image_paths[:max_samples]
+            labels = labels[:max_samples]
+        
+        X_data = []
+        y_data = []
+        
+        for img_path, label in zip(image_paths, labels):
+            try:
+                # Load image
+                img = Image.open(img_path).convert('L')  # Convert to grayscale
+                
+                # Resize to 28x28 if needed
+                if img.size != (28, 28):
+                    img = img.resize((28, 28), Image.Resampling.LANCZOS)
+                
+                # Convert to numpy array and normalize
+                img_array = np.array(img, dtype=np.float32) / 255.0
+                
+                # Flatten
+                img_flat = img_array.flatten()
+                
+                X_data.append(img_flat)
+                y_data.append(label)
+                
+            except Exception as e:
+                print(f"Error loading {img_path}: {e}")
+                continue
+        
+        X_data = np.array(X_data, dtype=np.float32)
+        y_data = np.array(y_data, dtype=np.int32)
+        
+        return X_data, y_data
+    
+    def load_training_data(self, max_samples=5000):
+        """Load training data with balanced sampling from each class"""
+        # Get balanced samples from each digit class
+        train_paths = []
+        train_labels = []
+        
+        # Group images by label
+        images_by_label = {}
+        for img_path, label in zip(self.image_paths, self.labels):
+            if label not in images_by_label:
+                images_by_label[label] = []
+            images_by_label[label].append(img_path)
+        
+        # Sample from each class
+        samples_per_class = max_samples // len(images_by_label) if images_by_label else 0
+        
+        for label, img_paths in images_by_label.items():
+            # Take up to samples_per_class images from this class
+            class_samples = min(samples_per_class, len(img_paths))
+            selected_paths = img_paths[:class_samples]
+            
+            train_paths.extend(selected_paths)
+            train_labels.extend([label] * class_samples)
+        
+        print(f"Loading {len(train_paths)} training samples")
+        return self.load_images_from_paths(train_paths, train_labels)
+    
+    def load_test_data(self, max_samples=1000):
+        """Load test data with balanced sampling from each class"""
+        # Get balanced samples from each digit class for testing
+        test_paths = []
+        test_labels = []
+        
+        # Group images by label
+        images_by_label = {}
+        for img_path, label in zip(self.image_paths, self.labels):
+            if label not in images_by_label:
+                images_by_label[label] = []
+            images_by_label[label].append(img_path)
+        
+        # Sample from each class for testing
+        samples_per_class = max_samples // len(images_by_label) if images_by_label else 0
+        
+        for label, img_paths in images_by_label.items():
+            # Take samples from the end of each class (different from training)
+            class_samples = min(samples_per_class, len(img_paths))
+            start_idx = max(0, len(img_paths) - class_samples)
+            selected_paths = img_paths[start_idx:]
+            
+            test_paths.extend(selected_paths)
+            test_labels.extend([label] * len(selected_paths))
+        
+        print(f"Loading {len(test_paths)} test samples")
+        return self.load_images_from_paths(test_paths, test_labels)
+    
+    def get_all_images_with_labels(self):
+        """Get all images with their labels for navigation"""
+        return self.image_paths, self.labels
+    
+    def load_single_image(self, image_path):
+        """Load a single image for visualization"""
+        try:
+            # Load image
+            img = Image.open(image_path).convert('L')  # Convert to grayscale
+            
+            # Resize to 28x28 if needed
+            if img.size != (28, 28):
+                img = img.resize((28, 28), Image.Resampling.LANCZOS)
+            
+            # Convert to numpy array and normalize
+            img_array = np.array(img, dtype=np.float32) / 255.0
+            
+            # Flatten for model input
+            img_flat = img_array.flatten().reshape(1, -1)
+            
+            return img_array, img_flat
+            
+        except Exception as e:
+            print(f"Error loading image {image_path}: {e}")
+            # Create a dummy image if loading fails
+            img_array = np.random.rand(28, 28)
+            img_flat = img_array.flatten().reshape(1, -1)
+            return img_array, img_flat
