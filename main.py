@@ -25,6 +25,9 @@ class NNVisualizerApp:
             image_changed_callback=self.on_image_changed
         )
         
+        # Cache testSet predictions if not already cached
+        self.check_and_cache_testset()
+        
         # Load or train model
         self.load_or_train_model()
         
@@ -88,6 +91,14 @@ class NNVisualizerApp:
         """Called when image changes in UI"""
         # This can be used for any additional processing when image changes
         pass
+    
+    def check_and_cache_testset(self):
+        """Check if testSet predictions need to be cached"""
+        testset_images = self.data_loader.get_testset_images()
+        
+        if testset_images and not self.data_loader.testset_predictions:
+            print(f"Found {len(testset_images)} testSet images but no cached predictions.")
+            print("TestSet predictions will be cached when you first switch to TestSet dataset.")
     
     def test_model_performance(self):
         """Test the model performance on test data"""

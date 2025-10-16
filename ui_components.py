@@ -21,6 +21,9 @@ class NNVisualizerUI:
         self.all_image_paths, self.all_labels = self.data_loader.get_all_images_with_labels()
         self.max_images = len(self.all_image_paths)
         
+        # Current dataset mode
+        self.current_dataset = 'training'
+        
         # Current image data
         self.image_array = None
         self.image_flat = None
@@ -62,6 +65,17 @@ class NNVisualizerUI:
         self.image_info_label = ttk.Label(info_frame, text="Image: 1/1000")
         self.image_info_label.pack()
         
+        # Dataset toggle
+        dataset_frame = ttk.Frame(control_frame)
+        dataset_frame.pack(side='left', padx=20)
+        
+        ttk.Label(dataset_frame, text="Dataset:").pack(side='left')
+        self.dataset_var = tk.StringVar(value="Training")
+        self.dataset_combo = ttk.Combobox(dataset_frame, textvariable=self.dataset_var, 
+                                        values=["Training", "TestSet"], state="readonly", width=10)
+        self.dataset_combo.pack(side='left', padx=5)
+        self.dataset_combo.bind('<<ComboboxSelected>>', self.on_dataset_changed)
+        
         # Model controls
         model_frame = ttk.Frame(control_frame)
         model_frame.pack(side='right')
@@ -102,12 +116,21 @@ class NNVisualizerUI:
             
             self.image_array, self.image_flat = self.data_loader.load_single_image(img_path)
             
-            # Update info label
-            self.image_info_label.config(
-                text=f"Image: {self.current_image_index + 1}/{self.max_images} | True Label: {true_label}"
-            )
+            # Update info label based on dataset
+            if self.current_dataset == 'testset':
+                # For testSet, show prediction instead of true label
+                cached_prediction, cached_probabilities = self.data_loader.get_cached_prediction(img_path)
+                if cached_prediction is not None:
+                    confidence = cached_probabilities[cached_prediction]
+                    info_text = f"Image: {self.current_image_index + 1}/{self.max_images} | Predicted: {cached_prediction} (Confidence: {confidence:.3f})"
+                else:
+                    info_text = f"Image: {self.current_image_index + 1}/{self.max_images} | TestSet Image"
+            else:
+                info_text = f"Image: {self.current_image_index + 1}/{self.max_images} | True Label: {true_label}"
             
-            print(f"Loaded image {self.current_image_index + 1}: {os.path.basename(img_path)} (True: {true_label})")
+            self.image_info_label.config(text=info_text)
+            
+            print(f"Loaded image {self.current_image_index + 1}: {os.path.basename(img_path)}")
             
             # Notify external callback
             if self.on_image_changed:
@@ -138,6 +161,39 @@ class NNVisualizerUI:
         """Trigger model save"""
         if self.on_save_model:
             self.on_save_model()
+    
+    def on_dataset_changed(self, event=None):
+        """Handle dataset selection change"""
+        dataset_name = self.dataset_var.get().lower()
+        
+        if dataset_name == "training":
+            self.current_dataset = 'training'
+            self.data_loader.switch_dataset('training')
+        elif dataset_name == "testset":
+            self.current_dataset = 'testset'
+            self.data_loader.switch_dataset('testset')
+            
+            # Check if testSet predictions are cached
+            if not self.data_loader.testset_predictions:
+                from tkinter import messagebox
+                if messagebox.askyesno("Cache TestSet Predictions", 
+                                    "TestSet predictions are not cached. Would you like to run predictions on all testSet images now? This may take a few minutes."):
+                    self.cache_testset_predictions()
+        
+        # Update image paths and labels
+        self.all_image_paths, self.all_labels = self.data_loader.get_all_images_with_labels()
+        self.max_images = len(self.all_image_paths)
+        
+        # Reset to first image
+        self.current_image_index = 0
+        self.load_current_image()
+        self.update_visualizations()
+    
+    def cache_testset_predictions(self):
+        """Cache testSet predictions"""
+        print("Starting testSet prediction caching...")
+        self.data_loader.cache_testset_predictions(self.model)
+        print("TestSet prediction caching completed!")
     
     def create_original_tab(self):
         """Create the original image tab"""
@@ -197,42 +253,32 @@ class NNVisualizerUI:
         predicted_class = predictions[0]
         confidence = probabilities[0, predicted_class]
         
-        # 1. Weights for predicted class
-        weights = self.model.weights[predicted_class].reshape(28, 28)
-        im1 = ax1.imshow(weights, cmap='RdBu_r')
-        ax1.set_title(f'Weights for Class {predicted_class}')
+        # 1. Original Image (top left)
+        ax1.imshow(self.image_array, cmap='gray')
+        ax1.set_title('Original Image')
         ax1.axis('off')
-        plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
         
-        # 2. All class probabilities
+        # 2. Weights for predicted class (top right)
+        weights = self.model.weights[predicted_class].reshape(28, 28)
+        im2 = ax2.imshow(weights, cmap='RdBu_r')
+        ax2.set_title(f'Weights for Class {predicted_class}')
+        ax2.axis('off')
+        plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+        
+        # 3. All class probabilities (bottom left)
         classes = list(range(10))
-        ax2.bar(classes, probabilities[0])
-        ax2.set_title('Class Probabilities')
-        ax2.set_xlabel('Digit Class')
-        ax2.set_ylabel('Probability')
-        ax2.set_xticks(classes)
-        
+        ax3.bar(classes, probabilities[0])
+        ax3.set_title('Class Probabilities')
+        ax3.set_xlabel('Digit Class')
+        ax3.set_ylabel('Probability')
+        ax3.set_xticks(classes)
         # Highlight predicted class
-        ax2.bar(predicted_class, confidence, color='red', alpha=0.7)
+        ax3.bar(predicted_class, confidence, color='red', alpha=0.7)
         
-        # 3. Weight distribution
-        all_weights = self.model.weights.flatten()
-        ax3.hist(all_weights, bins=50, alpha=0.7, edgecolor='black')
-        ax3.set_title('Weight Distribution')
-        ax3.set_xlabel('Weight Value')
-        ax3.set_ylabel('Frequency')
-        
-        # 4. Feature importance (top contributing pixels)
-        pixel_contributions = self.image_flat[0] * self.model.weights[predicted_class]
-        top_pixels = np.argsort(np.abs(pixel_contributions))[-20:]  # Top 20 pixels
-        
-        # Create a heatmap showing top contributing pixels
-        importance_map = np.zeros(784)
-        importance_map[top_pixels] = pixel_contributions[top_pixels]
-        importance_map = importance_map.reshape(28, 28)
-        
-        im4 = ax4.imshow(importance_map, cmap='RdBu_r')
-        ax4.set_title('Top Contributing Pixels')
+        # 4. Pixel contribution overlay (bottom right)
+        overlay = self.image_array * weights
+        im4 = ax4.imshow(overlay, cmap='RdBu_r', alpha=0.8)
+        ax4.set_title('Pixel Contribution Overlay')
         ax4.axis('off')
         plt.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
         
@@ -307,43 +353,34 @@ class NNVisualizerUI:
         # Update the plots
         axes = self.weights_fig.axes
         
-        # 1. Weights for predicted class (no colorbar for speed)
+        # 1. Original Image (top left)
         axes[0].clear()
-        axes[0].imshow(weights, cmap='RdBu_r')
-        axes[0].set_title(f'Weights for Class {predicted_class}')
+        axes[0].imshow(self.image_array, cmap='gray')
+        axes[0].set_title('Original Image')
         axes[0].axis('off')
         
-        # 2. All class probabilities
+        # 2. Weights for predicted class (top right)
         axes[1].clear()
-        classes = list(range(10))
-        axes[1].bar(classes, probabilities[0])
-        axes[1].set_title('Class Probabilities')
-        axes[1].set_xlabel('Digit Class')
-        axes[1].set_ylabel('Probability')
-        axes[1].set_xticks(classes)
-        # Highlight predicted class
-        axes[1].bar(predicted_class, confidence, color='red', alpha=0.7)
+        axes[1].imshow(weights, cmap='RdBu_r')
+        axes[1].set_title(f'Weights for Class {predicted_class}')
+        axes[1].axis('off')
         
-        # 3. Weight distribution
+        # 3. All class probabilities (bottom left)
         axes[2].clear()
-        all_weights = self.model.weights.flatten()
-        axes[2].hist(all_weights, bins=50, alpha=0.7, edgecolor='black')
-        axes[2].set_title('Weight Distribution')
-        axes[2].set_xlabel('Weight Value')
-        axes[2].set_ylabel('Frequency')
+        classes = list(range(10))
+        axes[2].bar(classes, probabilities[0])
+        axes[2].set_title('Class Probabilities')
+        axes[2].set_xlabel('Digit Class')
+        axes[2].set_ylabel('Probability')
+        axes[2].set_xticks(classes)
+        # Highlight predicted class
+        axes[2].bar(predicted_class, confidence, color='red', alpha=0.7)
         
-        # 4. Feature importance (no colorbar for speed)
-        pixel_contributions = self.image_flat[0] * self.model.weights[predicted_class]
-        top_pixels = np.argsort(np.abs(pixel_contributions))[-20:]  # Top 20 pixels
-        
-        # Create a heatmap showing top contributing pixels
-        importance_map = np.zeros(784)
-        importance_map[top_pixels] = pixel_contributions[top_pixels]
-        importance_map = importance_map.reshape(28, 28)
-        
+        # 4. Pixel contribution overlay (bottom right)
         axes[3].clear()
-        axes[3].imshow(importance_map, cmap='RdBu_r')
-        axes[3].set_title('Top Contributing Pixels')
+        overlay = self.image_array * weights
+        axes[3].imshow(overlay, cmap='RdBu_r', alpha=0.8)
+        axes[3].set_title('Pixel Contribution Overlay')
         axes[3].axis('off')
     
     def print_model_analysis(self):
@@ -351,16 +388,31 @@ class NNVisualizerUI:
         predictions, probabilities = self.model.predict(self.image_flat)
         predicted_class = predictions[0]
         confidence = probabilities[0, predicted_class]
-        true_label = self.all_labels[self.current_image_index]
         
         print("\n" + "="*50)
         print("FROM-SCRATCH MODEL ANALYSIS")
         print("="*50)
         print(f"Image: {self.current_image_index + 1}/{self.max_images}")
-        print(f"True Label: {true_label}")
-        print(f"Predicted Class: {predicted_class}")
-        print(f"Confidence: {confidence:.4f}")
-        print(f"Correct: {'✓' if predicted_class == true_label else '✗'}")
+        
+        if self.current_dataset == 'testset':
+            # For testSet, show cached prediction if available
+            img_path = self.all_image_paths[self.current_image_index]
+            cached_prediction, cached_probabilities = self.data_loader.get_cached_prediction(img_path)
+            if cached_prediction is not None:
+                print(f"TestSet Image - Cached Prediction: {cached_prediction}")
+                print(f"Current Model Prediction: {predicted_class}")
+                print(f"Confidence: {confidence:.4f}")
+            else:
+                print(f"TestSet Image - Model Prediction: {predicted_class}")
+                print(f"Confidence: {confidence:.4f}")
+        else:
+            # For training images, show true label
+            true_label = self.all_labels[self.current_image_index]
+            print(f"True Label: {true_label}")
+            print(f"Predicted Class: {predicted_class}")
+            print(f"Confidence: {confidence:.4f}")
+            print(f"Correct: {'✓' if predicted_class == true_label else '✗'}")
+        
         print("\nAll Class Probabilities:")
         for i, prob in enumerate(probabilities[0]):
             marker = " ← PREDICTED" if i == predicted_class else ""
