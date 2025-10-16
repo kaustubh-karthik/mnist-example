@@ -244,26 +244,107 @@ class NNVisualizerUI:
         self.weights_canvas = canvas
     
     def update_visualizations(self):
-        """Update all visualizations"""
-        # Close existing figures to prevent memory issues
-        plt.close(self.original_fig)
-        plt.close(self.overlay_fig)
-        plt.close(self.weights_fig)
+        """Update all visualizations efficiently"""
+        # Use a simpler approach - clear and redraw existing figures
+        self.quick_update_original_tab()
+        self.quick_update_overlay_tab()
+        self.quick_update_weights_tab()
         
-        # Update original tab
-        self.original_canvas.get_tk_widget().destroy()
-        self.create_original_tab()
-        
-        # Update overlay tab
-        self.overlay_canvas.get_tk_widget().destroy()
-        self.create_overlay_tab()
-        
-        # Update weights tab
-        self.weights_canvas.get_tk_widget().destroy()
-        self.create_weights_tab()
+        # Refresh the canvas displays
+        self.original_canvas.draw()
+        self.overlay_canvas.draw()
+        self.weights_canvas.draw()
         
         # Print model analysis
         self.print_model_analysis()
+    
+    def quick_update_original_tab(self):
+        """Quick update of the original image tab"""
+        ax = self.original_fig.axes[0]
+        ax.clear()
+        ax.imshow(self.image_array, cmap='gray')
+        ax.set_title('Original Image (28x28)')
+        ax.axis('off')
+    
+    def quick_update_overlay_tab(self):
+        """Quick update of the pixel overlay tab"""
+        # Get model prediction
+        predictions, probabilities = self.model.predict(self.image_flat)
+        predicted_class = predictions[0]
+        confidence = probabilities[0, predicted_class]
+        
+        # Get weights for the predicted class
+        weights = self.model.weights[predicted_class].reshape(28, 28)
+        
+        # Create overlay showing pixel contributions
+        overlay = self.image_array * weights
+        
+        # Update the plots
+        axes = self.overlay_fig.axes
+        
+        # Update original image (left plot)
+        axes[0].clear()
+        axes[0].imshow(self.image_array, cmap='gray')
+        axes[0].set_title('Original Image')
+        axes[0].axis('off')
+        
+        # Update overlay (right plot) - skip colorbar for speed
+        axes[1].clear()
+        axes[1].imshow(overlay, cmap='RdBu_r', alpha=0.8)
+        axes[1].set_title(f'Pixel Contribution Overlay\nPredicted: {predicted_class} (Confidence: {confidence:.3f})')
+        axes[1].axis('off')
+    
+    def quick_update_weights_tab(self):
+        """Quick update of the weights visualization tab"""
+        # Get model prediction
+        predictions, probabilities = self.model.predict(self.image_flat)
+        predicted_class = predictions[0]
+        confidence = probabilities[0, predicted_class]
+        
+        # Get weights for the predicted class
+        weights = self.model.weights[predicted_class].reshape(28, 28)
+        
+        # Update the plots
+        axes = self.weights_fig.axes
+        
+        # 1. Weights for predicted class (no colorbar for speed)
+        axes[0].clear()
+        axes[0].imshow(weights, cmap='RdBu_r')
+        axes[0].set_title(f'Weights for Class {predicted_class}')
+        axes[0].axis('off')
+        
+        # 2. All class probabilities
+        axes[1].clear()
+        classes = list(range(10))
+        axes[1].bar(classes, probabilities[0])
+        axes[1].set_title('Class Probabilities')
+        axes[1].set_xlabel('Digit Class')
+        axes[1].set_ylabel('Probability')
+        axes[1].set_xticks(classes)
+        # Highlight predicted class
+        axes[1].bar(predicted_class, confidence, color='red', alpha=0.7)
+        
+        # 3. Weight distribution
+        axes[2].clear()
+        all_weights = self.model.weights.flatten()
+        axes[2].hist(all_weights, bins=50, alpha=0.7, edgecolor='black')
+        axes[2].set_title('Weight Distribution')
+        axes[2].set_xlabel('Weight Value')
+        axes[2].set_ylabel('Frequency')
+        
+        # 4. Feature importance (no colorbar for speed)
+        pixel_contributions = self.image_flat[0] * self.model.weights[predicted_class]
+        top_pixels = np.argsort(np.abs(pixel_contributions))[-20:]  # Top 20 pixels
+        
+        # Create a heatmap showing top contributing pixels
+        importance_map = np.zeros(784)
+        importance_map[top_pixels] = pixel_contributions[top_pixels]
+        importance_map = importance_map.reshape(28, 28)
+        
+        axes[3].clear()
+        axes[3].imshow(importance_map, cmap='RdBu_r')
+        axes[3].set_title('Top Contributing Pixels')
+        axes[3].axis('off')
     
     def print_model_analysis(self):
         """Print detailed model analysis"""

@@ -10,8 +10,14 @@ class MNISTDataLoader:
         self.dataset_path = dataset_path
         self.digit_folders = [str(i) for i in range(10)]  # 0-9
         
+        # Image cache for instant loading
+        self.image_cache = {}  # {image_path: (image_array, image_flat)}
+        
         # Create a mapping of image paths to labels using folder structure
         self.create_label_mapping()
+        
+        # Pre-load a batch of images for instant navigation
+        self.preload_images()
     
     def create_label_mapping(self):
         """Create a mapping from image paths to labels using folder structure"""
@@ -47,6 +53,38 @@ class MNISTDataLoader:
             print("Images shuffled for random navigation order")
         else:
             print("No images found in the dataset!")
+    
+    def preload_images(self, num_images=500):
+        """Pre-load images for instant navigation"""
+        print(f"Pre-loading {min(num_images, len(self.image_paths))} images for instant navigation...")
+        
+        for i, img_path in enumerate(self.image_paths[:num_images]):
+            try:
+                # Load and process image
+                img = Image.open(img_path).convert('L')  # Convert to grayscale
+                
+                # Resize to 28x28 if needed
+                if img.size != (28, 28):
+                    img = img.resize((28, 28), Image.Resampling.LANCZOS)
+                
+                # Convert to numpy array and normalize
+                img_array = np.array(img, dtype=np.float32) / 255.0
+                
+                # Flatten for model input
+                img_flat = img_array.flatten().reshape(1, -1)
+                
+                # Cache the processed image
+                self.image_cache[img_path] = (img_array, img_flat)
+                
+                # Progress indicator (less frequent for faster startup)
+                if (i + 1) % 200 == 0 or (i + 1) == min(num_images, len(self.image_paths)):
+                    print(f"Pre-loaded {i + 1}/{min(num_images, len(self.image_paths))} images...")
+                    
+            except Exception as e:
+                print(f"Error pre-loading {img_path}: {e}")
+                continue
+        
+        print(f"Pre-loading complete! {len(self.image_cache)} images cached.")
     
     def load_images_from_paths(self, image_paths, labels, max_samples=None):
         """Load images from given paths with corresponding labels"""
@@ -144,8 +182,15 @@ class MNISTDataLoader:
         return self.image_paths, self.labels
     
     def load_single_image(self, image_path):
-        """Load a single image for visualization"""
+        """Load a single image for visualization (uses cache for instant loading)"""
+        # Check if image is in cache
+        if image_path in self.image_cache:
+            return self.image_cache[image_path]
+        
+        # If not in cache, load it (this should be rare after preloading)
         try:
+            print(f"Loading uncached image: {os.path.basename(image_path)}")
+            
             # Load image
             img = Image.open(image_path).convert('L')  # Convert to grayscale
             
@@ -158,6 +203,9 @@ class MNISTDataLoader:
             
             # Flatten for model input
             img_flat = img_array.flatten().reshape(1, -1)
+            
+            # Cache it for future use
+            self.image_cache[image_path] = (img_array, img_flat)
             
             return img_array, img_flat
             
